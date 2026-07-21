@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+macos/.build/
+.surstudio-ai/
+__pycache__/
+*.pyc
+.env
+.npm-cache/
+.DS_Store
+.swarm/
+.design-captures/
+*.log

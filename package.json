@@ -1,0 +1,31 @@
+{
+  "name": "surstudio-karaoke",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c magenta,cyan \"node server.mjs\" \"npm:dev:web\"",
+    "dev:web": "vite --host 0.0.0.0 --port 4173 --strictPort",
+    "server": "node server.mjs",
+    "build": "vite build",
+    "mac:build": "bash macos/scripts/build-app.sh",
+    "mac:package": "bash macos/scripts/package-family-beta.sh",
+    "mac:run": "swift run --package-path macos SurStudioMac",
+    "mac:setup-ai": "bash macos/scripts/setup-ai.sh",
+    "mac:probe-ai": "bash macos/scripts/probe-ai.sh",
+    "test": "node --test src/*.test.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource/outfit": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
+    "@vitejs/plugin-react": "5.0.4",
+    "concurrently": "^10.0.3",
+    "express": "^5.2.1",
+    "lucide-react": "^1.25.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-icons": "^5.7.0",
+    "vite": "6.4.2"
+  }
+}
