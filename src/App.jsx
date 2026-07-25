@@ -1050,7 +1050,7 @@ function EmptyState({ icon: Icon, title, copy, onAction }) {
 }
 
 function Footer() {
-  return <footer className="site-footer"><div className="page-shell"><Brand /><p>Local-first karaoke tools for singers who want one more take.</p><div><span>Automatic lyric match</span><span>Hindi + Bollywood ready</span><span>Provider-free practice</span></div></div></footer>;
+  return <footer className="site-footer"><div className="page-shell"><Brand /><p>Your online karaoke studio for smarter practice, stronger performances, and one more take.</p><div><span>Automatic lyric match</span><span>Hindi + Bollywood ready</span><span>Private recording</span></div></div></footer>;
 }
 
 export function App() {
