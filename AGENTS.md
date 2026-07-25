@@ -16,3 +16,5 @@ When implementing from a selected generated mock, treat that image as the source
 - Keep anonymous/local mode usable without sign-in. Signing in may migrate the singer's existing local score history into their private account.
 - Describe the hosted product as an online karaoke studio in primary marketing copy; reserve “local-first” language for specific privacy and on-device processing explanations.
 - Keep Add Song and local song building available without sign-in while songs and sessions remain browser-local. If cloud song storage is added later, gate the cloud-save action rather than the builder itself.
+- Keep Mehfil Groups invitation-only and Google-authenticated. Enforce three active owned groups and twelve members per group in the database, use expiring/revocable invitation links, and rank one best score per singer each week so practice volume does not distort the scoreboard.
+- Group views may expose singer display names, profile images, song titles, score metadata, tiers, and dates to current members. Never expose member emails or upload recordings, contacts, recipients, conversations, or message history to a group.

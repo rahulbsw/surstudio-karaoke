@@ -5,5 +5,5 @@ if (!databaseConfigured) {
   process.exitCode = 1;
 } else {
   await ensureScoreSchema();
-  console.log("SurStudio score storage is ready.");
+  console.log("SurStudio hosted storage is ready.");
 }

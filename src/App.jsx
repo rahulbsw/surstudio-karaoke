@@ -52,9 +52,12 @@ import { demoLyrics, featuredSongs, genres, moods, studioFeatures } from "./data
 import { Builder } from "./Builder.jsx";
 import { AudioTrackPlayer } from "./AudioTrackPlayer.jsx";
 import { MacNativePanel } from "./MacNativePanel.jsx";
+import { GroupsView } from "./Groups.jsx";
+import { hasNativeMacBridge } from "./nativeMac.js";
 import { createScoreCardFile, shareScoreCard } from "./scoreShare.js";
 import { buildPracticeRoutine, practiceFocuses } from "./practice.js";
 import { getPracticeRhythm, localDateKey, mergeDailyActivity } from "./habits.js";
+import { normalizeInviteToken } from "./groupRules.js";
 import {
   calculatePerformanceBreakdown,
   createTimedLyrics,
@@ -145,7 +148,7 @@ function Brand() {
   );
 }
 
-function Header({ currentView, onNavigate, onOpenBuilder, libraryCount, account, scoreSyncState }) {
+function Header({ currentView, onNavigate, onOpenBuilder, libraryCount, account, scoreSyncState, hostedGroups }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const navigate = (view) => {
@@ -172,6 +175,7 @@ function Header({ currentView, onNavigate, onOpenBuilder, libraryCount, account,
           <button className={currentView === "library" ? "active" : ""} onClick={() => navigate("library")}>
             Progress {libraryCount > 0 && <span className="nav-count">{libraryCount}</span>}
           </button>
+          {hostedGroups && <button className={currentView === "groups" ? "active" : ""} onClick={() => navigate("groups")}>Groups</button>}
         </nav>
         <div className="header-actions">
           <button className="button button-compact button-primary header-cta" type="button" onClick={onOpenBuilder}>
@@ -1056,13 +1060,24 @@ function Footer() {
 export function App() {
   const dashboardPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has("dashboard-preview");
   const shareCardPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has("share-card-preview");
-  const [view, setView] = useState(dashboardPreview ? "library" : "discover");
+  const groupsPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has("groups-preview");
+  const hostedGroups = !hasNativeMacBridge();
+  const initialInviteToken = normalizeInviteToken(new URLSearchParams(window.location.search).get("invite"));
+  const [view, setView] = useState(dashboardPreview ? "library" : groupsPreview || initialInviteToken ? "groups" : "discover");
+  const [inviteToken, setInviteToken] = useState(initialInviteToken);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderSeed, setBuilderSeed] = useState(null);
   const [library, setLibrary] = useState(() => dashboardPreview ? DASHBOARD_PREVIEW_LIBRARY : readLibrary());
   const [activeTrack, setActiveTrack] = useState(() => readLibrary().lastTrack || null);
   const [scorePreviewOpen, setScorePreviewOpen] = useState(() => import.meta.env.DEV && new URLSearchParams(window.location.search).has("score-preview"));
-  const [account, setAccount] = useState({ authenticated: false, authConfigured: false, databaseConfigured: false, scoreSyncAvailable: false, user: null });
+  const [account, setAccount] = useState(() => groupsPreview ? {
+    authenticated: true,
+    authConfigured: true,
+    databaseConfigured: true,
+    scoreSyncAvailable: true,
+    groupsAvailable: true,
+    user: { id: "preview-rahul", name: "Rahul", email: "preview@surstudio.local", image: null },
+  } : { authenticated: false, authConfigured: false, databaseConfigured: false, scoreSyncAvailable: false, groupsAvailable: false, user: null });
   const [scoreSyncState, setScoreSyncState] = useState("local");
 
   useEffect(() => { if (!dashboardPreview) writeLibrary(library); }, [dashboardPreview, library]);
@@ -1072,7 +1087,7 @@ export function App() {
     return () => { delete window.__surStudioCreateScoreCard; };
   }, [dashboardPreview]);
   useEffect(() => {
-    if (dashboardPreview) return undefined;
+    if (dashboardPreview || groupsPreview) return undefined;
     let active = true;
     const synchronize = async () => {
       const currentAccount = await loadAccount();
@@ -1099,7 +1114,7 @@ export function App() {
     };
     synchronize();
     return () => { active = false; };
-  }, [dashboardPreview]);
+  }, [dashboardPreview, groupsPreview]);
 
   const openBuilder = (value) => {
     setBuilderSeed(typeof value === "string" ? { url: value } : value || null);
@@ -1155,12 +1170,20 @@ export function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const handleInvite = () => {
+    setInviteToken("");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("invite");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  };
+
   return (
     <div id="top" className="app-shell">
-      <Header currentView={view} onNavigate={navigate} onOpenBuilder={() => openBuilder()} libraryCount={library.takes.length} account={account} scoreSyncState={scoreSyncState} />
+      <Header currentView={view} onNavigate={navigate} onOpenBuilder={() => openBuilder()} libraryCount={library.takes.length} account={account} scoreSyncState={scoreSyncState} hostedGroups={hostedGroups} />
       {view === "discover" && <Discovery onOpenBuilder={openBuilder} onPickSong={pickSong} onResumeTrack={resumeTrack} favorites={library.favorites} onFavorite={toggleFavorite} library={library} />}
       {view === "studio" && activeTrack && <KaraokeStudio track={activeTrack} onBack={() => navigate("discover")} onReplaceVideo={(track) => openBuilder({ url: "", title: track.title, artist: track.artist, language: track.language, searchQuery: makeKaraokeSearchQuery(track.title, track.artist) })} onSavedTake={saveTake} onPracticeProgress={savePracticeProgress} />}
       {view === "library" && <LibraryView library={library} onDiscover={() => navigate("discover")} onResumeTrack={resumeTrack} account={account} scoreSyncState={scoreSyncState} />}
+      {view === "groups" && <GroupsView account={account} inviteToken={inviteToken} onInviteHandled={handleInvite} preview={groupsPreview} />}
       {view !== "studio" && <Footer />}
       {builderOpen && <Builder seed={builderSeed} onClose={() => setBuilderOpen(false)} onBuild={buildTrack} />}
       {scorePreviewOpen && <TakeScorecard analysis={SCORECARD_PREVIEW} recordingUrl={SILENT_PREVIEW_AUDIO} track={featuredSongs[0]} onClose={() => setScorePreviewOpen(false)} onRetake={() => setScorePreviewOpen(false)} />}

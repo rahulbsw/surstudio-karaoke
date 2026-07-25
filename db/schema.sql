@@ -28,3 +28,46 @@ CREATE TABLE IF NOT EXISTS surstudio_scores (
 
 CREATE INDEX IF NOT EXISTS surstudio_scores_user_recorded_idx
 ON surstudio_scores (user_id, recorded_at DESC);
+
+CREATE TABLE IF NOT EXISTS surstudio_groups (
+  id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL REFERENCES surstudio_users(id) ON DELETE CASCADE,
+  owner_slot SMALLINT NOT NULL CHECK (owner_slot BETWEEN 1 AND 3),
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  archived_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS surstudio_groups_active_owner_slot_idx
+ON surstudio_groups (owner_user_id, owner_slot)
+WHERE archived_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS surstudio_group_members (
+  group_id TEXT NOT NULL REFERENCES surstudio_groups(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES surstudio_users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+  member_slot SMALLINT NOT NULL CHECK (member_slot BETWEEN 1 AND 12),
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (group_id, user_id),
+  UNIQUE (group_id, member_slot)
+);
+
+CREATE INDEX IF NOT EXISTS surstudio_group_members_user_idx
+ON surstudio_group_members (user_id, joined_at DESC);
+
+CREATE TABLE IF NOT EXISTS surstudio_group_invites (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES surstudio_groups(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL REFERENCES surstudio_users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  max_uses SMALLINT NOT NULL DEFAULT 11 CHECK (max_uses BETWEEN 1 AND 11),
+  use_count SMALLINT NOT NULL DEFAULT 0 CHECK (use_count >= 0),
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS surstudio_group_invites_group_idx
+ON surstudio_group_invites (group_id, created_at DESC);

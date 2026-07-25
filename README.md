@@ -33,6 +33,7 @@ The tour follows one song from discovery to automatic lyric review and into the 
 - **A coach between takes** — follow warm-up, pitch, breath, phrasing and performance cards built for short, achievable practice.
 - **A score that teaches** — review pitch, timing, range and control, then receive a focused suggestion for the next take.
 - **A progress dashboard that feels human** — return to recent songs, favourites, practice days and personal bests without streak anxiety.
+- **Private Mehfil Groups** — invite friends and family, compare one best take per singer each week, and keep recordings out of the group.
 - **Share the celebration** — create a branded score card and send it through the Mac share sheet or Messages/iMessage.
 
 ## One song. Three clear moments.
@@ -48,6 +49,7 @@ SurStudio is local-first because singing practice should feel safe.
 
 - Microphone analysis and recordings stay on your device unless you explicitly download or share them.
 - Practice history and favourites are stored locally. If you choose Google sign-in on the hosted web app, score metadata is also saved privately to your account.
+- Mehfil Groups receive only the score metadata needed for their weekly scoreboard. Invitations are expiring, revocable links.
 - Audio takes and microphone recordings are never included in cloud score sync.
 - The Mac app serves its interface only on your computer’s loopback address.
 - Instrumentals and local AI jobs use files you choose and are not uploaded by SurStudio.
@@ -80,13 +82,14 @@ Because this repository is private, only invited GitHub collaborators can access
 - Optional Apple-silicon workers for local stem separation, transcription and lyric alignment.
 - A Local Karaoke Lab for owned or authorized audio/video files when YouTube embedding is unavailable.
 - Optional Google sign-in and private score-history sync on the hosted web experience.
+- Invite-only Mehfil Groups with three active groups per owner, twelve singers per group, and a fair weekly best-take scoreboard.
 
 ## Where SurStudio goes next
 
 - Developer ID signing, notarization and smoother in-app updates.
 - A family-friendly iOS companion with shared visual language and native audio tools.
 - Carefully packaged Core ML models for faster on-device transcription and alignment.
-- Better duet practice, singer profiles and family challenges without public engagement pressure.
+- Better duet practice and richer family challenges without public engagement pressure.
 - Licensed lyric-provider adapters when commercial access is available.
 
 ## Build from source
@@ -110,7 +113,7 @@ swift test --package-path macos
 
 Copy `.env.example` to `.env` and set `YOUTUBE_API_KEY` for the most reliable search. The key stays in the local server environment and `.env` is ignored by Git. Without a key, SurStudio can fall back to metadata/search helpers; it does not use `yt-dlp` to copy YouTube media or bypass playback restrictions.
 
-The hosted web build uses Google sign-in and Neon only for account-scoped score metadata. Configure `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `DATABASE_URL`; the accepted Google callback is `/api/auth/callback/google` on the deployed origin. Run `npm run db:setup` once to create the score tables, or let the first score request initialize them automatically.
+The hosted web build uses Google sign-in and Neon for account-scoped score metadata, private groups, memberships, and hashed invitation tokens. Configure `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `DATABASE_URL`; the accepted Google callback is `/api/auth/callback/google` on the deployed origin. Run `npm run db:setup` once to create the hosted tables, or let the first authenticated request initialize them automatically.
 
 The native audio monitor works without Python. Optional local stem separation and alignment can be prepared with:
 

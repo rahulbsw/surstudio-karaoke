@@ -3,6 +3,7 @@ const EMPTY_ACCOUNT = {
   authConfigured: false,
   databaseConfigured: false,
   scoreSyncAvailable: false,
+  groupsAvailable: false,
   user: null,
 };
 
@@ -56,7 +57,7 @@ async function submitAuthAction(action, provider = "") {
 
   const fields = {
     csrfToken: csrf.csrfToken,
-    callbackUrl: `${window.location.origin}/`,
+    callbackUrl: window.location.href,
   };
   for (const [name, value] of Object.entries(fields)) {
     const input = document.createElement("input");

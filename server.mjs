@@ -6,7 +6,24 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { analyzeLyricScripts, analyzeLyricsQuality, cleanVideoTitle, extractYouTubeId, makeKaraokeSearchQuery, makeYouTubeSearchUrl, parseIsoDuration } from "./src/utils.js";
 import { authConfigured, getCurrentUser, installAuth } from "./src/server/auth.mjs";
-import { databaseConfigured, deleteScore, listScores, saveScore } from "./src/server/db.mjs";
+import {
+  archiveGroup,
+  createGroup,
+  createGroupInvite,
+  databaseConfigured,
+  deleteScore,
+  getGroup,
+  getGroupInvitePreview,
+  GroupStorageError,
+  joinGroupWithInvite,
+  leaveGroup,
+  listGroups,
+  listScores,
+  removeGroupMember,
+  revokeGroupInvite,
+  saveScore,
+} from "./src/server/db.mjs";
+import { normalizeGroupId, normalizeGroupInput, normalizeInviteToken } from "./src/groupRules.js";
 
 const moduleRoot = process.env.SURSTUDIO_APP_ROOT
   ? resolve(process.env.SURSTUDIO_APP_ROOT)
@@ -393,10 +410,27 @@ async function requireAccount(request, response) {
   }
   const user = await getCurrentUser(request);
   if (!user) {
-    response.status(401).json({ error: "Sign in with Google to sync scores." });
+    response.status(401).json({ error: "Sign in with Google to continue." });
     return null;
   }
   return user;
+}
+
+function sendGroupError(response, error, fallback) {
+  if (!(error instanceof GroupStorageError)) {
+    console.error(fallback, error.message);
+    return response.status(500).json({ error: fallback });
+  }
+  const status = {
+    GROUP_LIMIT: 409,
+    GROUP_FULL: 409,
+    INVITE_EXPIRED: 410,
+    INVITE_INVALID: 404,
+    NOT_OWNER: 403,
+    NOT_MEMBER: 404,
+    OWNER_REQUIRED: 409,
+  }[error.code] || 400;
+  return response.status(status).json({ error: error.message, code: error.code });
 }
 
 app.get("/api/health", (_request, response) => {
@@ -421,6 +455,7 @@ app.get("/api/account", async (request, response) => {
       databaseConfigured,
       user,
       scoreSyncAvailable: Boolean(user && databaseConfigured),
+      groupsAvailable: Boolean(user && databaseConfigured),
     });
   } catch {
     response.status(500).json({ error: "SurStudio could not read the current account." });
@@ -467,6 +502,149 @@ app.delete("/api/scores/:id", async (request, response) => {
   } catch (error) {
     console.error("Score delete failed:", error.message);
     response.status(500).json({ error: "SurStudio could not delete this score." });
+  }
+});
+
+app.get("/api/groups", async (request, response) => {
+  try {
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    response.json(await listGroups(user));
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not load your groups.");
+  }
+});
+
+app.post("/api/groups", async (request, response) => {
+  try {
+    if (!isSameOrigin(request)) return response.status(403).json({ error: "This group request came from an untrusted origin." });
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    const input = normalizeGroupInput(request.body);
+    if (!input) return response.status(400).json({ error: "Enter a group name with at least two characters." });
+    response.status(201).json(await createGroup(user, input));
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not create this group.");
+  }
+});
+
+app.get("/api/groups/:groupId", async (request, response) => {
+  try {
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    const groupId = normalizeGroupId(request.params.groupId);
+    if (!groupId) return response.status(400).json({ error: "Choose a valid group." });
+    const detail = await getGroup(user, groupId);
+    if (!detail) return response.status(404).json({ error: "This group is unavailable or you are no longer a member." });
+    response.json(detail);
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not load this group.");
+  }
+});
+
+app.delete("/api/groups/:groupId", async (request, response) => {
+  try {
+    if (!isSameOrigin(request)) return response.status(403).json({ error: "This group request came from an untrusted origin." });
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    const groupId = normalizeGroupId(request.params.groupId);
+    if (!groupId) return response.status(400).json({ error: "Choose a valid group." });
+    await archiveGroup(user, groupId);
+    response.json({ archived: true });
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not archive this group.");
+  }
+});
+
+app.post("/api/groups/:groupId/invites", async (request, response) => {
+  try {
+    if (!isSameOrigin(request)) return response.status(403).json({ error: "This invitation request came from an untrusted origin." });
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    const groupId = normalizeGroupId(request.params.groupId);
+    if (!groupId) return response.status(400).json({ error: "Choose a valid group." });
+    response.status(201).json(await createGroupInvite(user, groupId));
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not create an invitation link.");
+  }
+});
+
+app.delete("/api/groups/:groupId/invites/:inviteId", async (request, response) => {
+  try {
+    if (!isSameOrigin(request)) return response.status(403).json({ error: "This invitation request came from an untrusted origin." });
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    const groupId = normalizeGroupId(request.params.groupId);
+    const inviteId = normalizeGroupId(request.params.inviteId);
+    if (!groupId || !inviteId) return response.status(400).json({ error: "Choose a valid invitation." });
+    await revokeGroupInvite(user, groupId, inviteId);
+    response.json({ revoked: true });
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not revoke this invitation.");
+  }
+});
+
+app.get("/api/group-invites/:token", async (request, response) => {
+  try {
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    const token = normalizeInviteToken(request.params.token);
+    if (!token) return response.status(400).json({ error: "This invitation link is invalid." });
+    const invite = await getGroupInvitePreview(token);
+    if (!invite) return response.status(404).json({ error: "This invitation link was not found." });
+    response.json({ invite });
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not read this invitation.");
+  }
+});
+
+app.post("/api/group-invites/:token/join", async (request, response) => {
+  try {
+    if (!isSameOrigin(request)) return response.status(403).json({ error: "This invitation request came from an untrusted origin." });
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    const token = normalizeInviteToken(request.params.token);
+    if (!token) return response.status(400).json({ error: "This invitation link is invalid." });
+    response.json(await joinGroupWithInvite(user, token));
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not join this group.");
+  }
+});
+
+app.delete("/api/groups/:groupId/members/:memberId", async (request, response) => {
+  try {
+    if (!isSameOrigin(request)) return response.status(403).json({ error: "This member request came from an untrusted origin." });
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    const groupId = normalizeGroupId(request.params.groupId);
+    const memberId = String(request.params.memberId || "").trim().slice(0, 160);
+    if (!groupId || !memberId) return response.status(400).json({ error: "Choose a valid group member." });
+    await removeGroupMember(user, groupId, memberId);
+    response.json({ removed: true });
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not remove this member.");
+  }
+});
+
+app.post("/api/groups/:groupId/leave", async (request, response) => {
+  try {
+    if (!isSameOrigin(request)) return response.status(403).json({ error: "This group request came from an untrusted origin." });
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Group storage is not configured." });
+    const groupId = normalizeGroupId(request.params.groupId);
+    if (!groupId) return response.status(400).json({ error: "Choose a valid group." });
+    await leaveGroup(user, groupId);
+    response.json({ left: true });
+  } catch (error) {
+    sendGroupError(response, error, "SurStudio could not leave this group.");
   }
 });
 
