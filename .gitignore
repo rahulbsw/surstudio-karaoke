@@ -6,6 +6,9 @@ macos/.build/
 __pycache__/
 *.pyc
 .env
+.env.local
+.env.*.local
+.vercel/
 .npm-cache/
 .DS_Store
 .swarm/

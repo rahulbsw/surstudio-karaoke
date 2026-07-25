@@ -6,7 +6,7 @@
 
 **A private Hindi and Bollywood karaoke studio for Mac.** Find a song, match the right lyrics, practise the difficult moments, record your take, and share the score with people you love.
 
-[Download the family beta](https://github.com/rahulbsw/surstudio-karaoke/releases) · [Watch the 17-second tour](docs/media/surstudio-tour.mp4)
+[Open SurStudio Web](https://surstudio.datasierra.com) · [Download the family beta](https://github.com/rahulbsw/surstudio-karaoke/releases) · [Watch the 17-second tour](docs/media/surstudio-tour.mp4)
 
 </div>
 
@@ -16,7 +16,7 @@
 
 SurStudio turns the scattered work of karaoke practice into one inviting flow. Search for a Bollywood favourite or paste a YouTube link. SurStudio looks for karaoke versions first, matches Hindi lyrics, checks their timing and opens a focused rehearsal room.
 
-No SurStudio account. No uploaded recordings. No pressure to perform for strangers. Just a better place to sing.
+No account is needed to sing. On the hosted web app, an optional Google sign-in lets your score history follow you—recordings still stay on your device. No pressure to perform for strangers. Just a better place to sing.
 
 ## See it in motion
 
@@ -47,7 +47,8 @@ The tour follows one song from discovery to automatic lyric review and into the 
 SurStudio is local-first because singing practice should feel safe.
 
 - Microphone analysis and recordings stay on your device unless you explicitly download or share them.
-- Practice history, favourites and score details are stored locally.
+- Practice history and favourites are stored locally. If you choose Google sign-in on the hosted web app, score metadata is also saved privately to your account.
+- Audio takes and microphone recordings are never included in cloud score sync.
 - The Mac app serves its interface only on your computer’s loopback address.
 - Instrumentals and local AI jobs use files you choose and are not uploaded by SurStudio.
 - SurStudio does not store Messages recipients, conversations or other app communication.
@@ -78,6 +79,7 @@ Because this repository is private, only invited GitHub collaborators can access
 - A local singer dashboard, saved takes, favourites and shareable score cards.
 - Optional Apple-silicon workers for local stem separation, transcription and lyric alignment.
 - A Local Karaoke Lab for owned or authorized audio/video files when YouTube embedding is unavailable.
+- Optional Google sign-in and private score-history sync on the hosted web experience.
 
 ## Where SurStudio goes next
 
@@ -107,6 +109,8 @@ swift test --package-path macos
 ```
 
 Copy `.env.example` to `.env` and set `YOUTUBE_API_KEY` for the most reliable search. The key stays in the local server environment and `.env` is ignored by Git. Without a key, SurStudio can fall back to metadata/search helpers; it does not use `yt-dlp` to copy YouTube media or bypass playback restrictions.
+
+The hosted web build uses Google sign-in and Neon only for account-scoped score metadata. Configure `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `DATABASE_URL`; the accepted Google callback is `/api/auth/callback/google` on the deployed origin. Run `npm run db:setup` once to create the score tables, or let the first score request initialize them automatically.
 
 The native audio monitor works without Python. Optional local stem separation and alignment can be prepared with:
 

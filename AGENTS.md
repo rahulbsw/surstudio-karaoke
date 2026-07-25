@@ -12,3 +12,5 @@ When implementing from a selected generated mock, treat that image as the source
 - Make performance sharing user-initiated and visual: generate a branded score-image card and support the macOS share sheet plus a direct Messages/iMessage action.
 - Never store recipients, conversations, contacts, or message history. Shared-card files should be temporary and automatically removed.
 - Family builds should be self-contained Apple-silicon Mac packages with a bundled Node runtime, a DMG, a ZIP, and checksums; keep GPU model runtimes optional until their redistribution and portability requirements are resolved.
+- Hosted web builds may sync score metadata to Neon under a Google-authenticated singer account. Audio takes and recordings remain local and must never be uploaded as part of score sync.
+- Keep anonymous/local mode usable without sign-in. Signing in may migrate the singer's existing local score history into their private account.

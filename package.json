@@ -13,12 +13,18 @@
     "mac:run": "swift run --package-path macos SurStudioMac",
     "mac:setup-ai": "bash macos/scripts/setup-ai.sh",
     "mac:probe-ai": "bash macos/scripts/probe-ai.sh",
+    "db:setup": "node scripts/setup-db.mjs",
     "test": "node --test src/*.test.js",
     "preview": "vite preview"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@auth/express": "^0.12.3",
     "@fontsource/outfit": "^5.3.0",
     "@fontsource/playfair-display": "^5.3.0",
+    "@neondatabase/serverless": "^1.1.0",
     "@vitejs/plugin-react": "5.2.0",
     "concurrently": "^10.0.3",
     "express": "^5.2.1",

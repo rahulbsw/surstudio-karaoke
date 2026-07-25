@@ -1,0 +1,16 @@
+.git
+.vercel
+.env
+.env.*
+!.env.example
+node_modules
+dist
+build
+.npm-cache
+macos/.build
+macos/.swiftpm
+.surstudio-ai
+.swarm
+.design-captures
+*.log
+.DS_Store

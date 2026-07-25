@@ -7,10 +7,12 @@ import {
   BookOpenText,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleGauge,
   Clock3,
+  Cloud,
   Download,
   FileAudio,
   Film,
@@ -20,6 +22,8 @@ import {
   ListMusic,
   ListChecks,
   LoaderCircle,
+  LogIn,
+  LogOut,
   Mic2,
   MessageCircle,
   Minus,
@@ -60,6 +64,14 @@ import {
   formatTime,
   makeKaraokeSearchQuery,
 } from "./utils.js";
+import {
+  beginGoogleSignIn,
+  beginSignOut,
+  loadAccount,
+  loadRemoteScores,
+  mergeScores,
+  saveRemoteScore,
+} from "./account.js";
 
 const STORAGE_KEY = "surstudio-library-v1";
 const EMPTY_LIBRARY = { favorites: [], takes: [], activity: [], lastTrack: null };
@@ -133,8 +145,9 @@ function Brand() {
   );
 }
 
-function Header({ currentView, onNavigate, onOpenBuilder, libraryCount }) {
+function Header({ currentView, onNavigate, onOpenBuilder, libraryCount, account, scoreSyncState }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const navigate = (view) => {
     onNavigate(view);
     setMenuOpen(false);
@@ -160,9 +173,35 @@ function Header({ currentView, onNavigate, onOpenBuilder, libraryCount }) {
             Progress {libraryCount > 0 && <span className="nav-count">{libraryCount}</span>}
           </button>
         </nav>
-        <button className="button button-compact button-primary header-cta" type="button" onClick={onOpenBuilder}>
-          <Youtube /> Add song
-        </button>
+        <div className="header-actions">
+          <button className="button button-compact button-primary header-cta" type="button" onClick={onOpenBuilder}>
+            <Youtube /> Add song
+          </button>
+          {account.authConfigured && (
+            <div className="account-control">
+              {account.authenticated ? (
+                <>
+                  <button className="account-button" type="button" aria-expanded={accountOpen} aria-label="Open account menu" onClick={() => setAccountOpen((value) => !value)}>
+                    {account.user?.image ? <img src={account.user.image} alt="" referrerPolicy="no-referrer" /> : <span>{(account.user?.name || account.user?.email || "S").slice(0, 1).toUpperCase()}</span>}
+                    <strong>{account.user?.name?.split(" ")[0] || "Account"}</strong>
+                    <ChevronDown />
+                  </button>
+                  {accountOpen && (
+                    <div className="account-menu">
+                      <small>Signed in as</small>
+                      <strong>{account.user?.name || "SurStudio singer"}</strong>
+                      <span>{account.user?.email}</span>
+                      <i className={scoreSyncState === "error" ? "sync-error" : ""}><Cloud /> {scoreSyncState === "syncing" ? "Syncing scores…" : scoreSyncState === "error" ? "Scores saved locally" : "Scores synced"}</i>
+                      <button type="button" onClick={beginSignOut}><LogOut /> Sign out</button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <button className="account-sign-in" type="button" onClick={beginGoogleSignIn}><LogIn /> Sign in</button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
@@ -948,7 +987,7 @@ function LegacyBuilder({ seed, onClose, onBuild }) {
   );
 }
 
-function LibraryView({ library, onDiscover, onResumeTrack }) {
+function LibraryView({ library, onDiscover, onResumeTrack, account, scoreSyncState }) {
   const rhythm = getPracticeRhythm(library.activity);
   const activeDays = rhythm.filter((day) => day.active).length;
   const bestTake = library.takes.reduce((best, take) => !best || Number(take.score) > Number(best.score) ? take : best, null);
@@ -957,9 +996,9 @@ function LibraryView({ library, onDiscover, onResumeTrack }) {
   const uniqueSongs = new Set(library.takes.map((take) => take.title)).size;
   return (
     <main className="library-view page-shell">
-      <div className="library-hero"><div className="eyebrow"><Library /> Your singer dashboard</div><h1>Notice what is getting easier.</h1><p>Your practice rhythm, scores, and favourites stay on this device. Share only the score cards you choose—SurStudio never stores recipients or message history.</p></div>
+      <div className="library-hero"><div className="eyebrow"><Library /> Your singer dashboard</div><h1>Notice what is getting easier.</h1><p>{account.authenticated ? "Your score history follows your SurStudio account. Recordings stay on this device, and SurStudio never stores recipients or message history." : account.authConfigured ? "Scores stay safely on this device until you sign in, then your score history can follow you. Recordings and sharing activity remain private." : "Your practice rhythm, scores, and favourites stay on this device. Share only the score cards you choose—SurStudio never stores recipients or message history."}</p></div>
       <section className="dashboard-overview" aria-label="Singer dashboard summary">
-        <div className="dashboard-profile"><span><Mic2 /></span><div><small>Local singer profile</small><strong>Your SurStudio journey</strong><p>{library.takes.length ? `${library.takes.length} scored ${library.takes.length === 1 ? "take" : "takes"} across ${uniqueSongs} ${uniqueSongs === 1 ? "song" : "songs"}.` : "Your first scored take will start the dashboard."}</p></div></div>
+        <div className="dashboard-profile">{account.user?.image ? <span className="profile-photo"><img src={account.user.image} alt="" referrerPolicy="no-referrer" /></span> : <span><Mic2 /></span>}<div><small>{account.authenticated ? scoreSyncState === "syncing" ? "Syncing score history" : "Google singer profile" : "Local singer profile"}</small><strong>{account.user?.name || "Your SurStudio journey"}</strong><p>{library.takes.length ? `${library.takes.length} scored ${library.takes.length === 1 ? "take" : "takes"} across ${uniqueSongs} ${uniqueSongs === 1 ? "song" : "songs"}.` : "Your first scored take will start the dashboard."}</p></div></div>
         <div className="dashboard-stats"><span><small>Best take</small><strong>{bestTake ? bestTake.score : "—"}<i>{bestTake ? "/10" : ""}</i></strong></span><span><small>Average</small><strong>{averageScore}<i>{library.takes.length ? "/10" : ""}</i></strong></span><span><small>This week</small><strong>{activeDays}<i> days</i></strong></span></div>
         {latestTake ? <DashboardShareCard take={latestTake} /> : <button className="dashboard-first-take" type="button" onClick={onDiscover}><CircleGauge /><span><strong>Make your first share card</strong><small>Record a take to unlock a private score image.</small></span><ArrowRight /></button>}
       </section>
@@ -1023,12 +1062,43 @@ export function App() {
   const [library, setLibrary] = useState(() => dashboardPreview ? DASHBOARD_PREVIEW_LIBRARY : readLibrary());
   const [activeTrack, setActiveTrack] = useState(() => readLibrary().lastTrack || null);
   const [scorePreviewOpen, setScorePreviewOpen] = useState(() => import.meta.env.DEV && new URLSearchParams(window.location.search).has("score-preview"));
+  const [account, setAccount] = useState({ authenticated: false, authConfigured: false, databaseConfigured: false, scoreSyncAvailable: false, user: null });
+  const [scoreSyncState, setScoreSyncState] = useState("local");
 
   useEffect(() => { if (!dashboardPreview) writeLibrary(library); }, [dashboardPreview, library]);
   useEffect(() => {
     if (!dashboardPreview) return undefined;
     window.__surStudioCreateScoreCard = createScoreCardFile;
     return () => { delete window.__surStudioCreateScoreCard; };
+  }, [dashboardPreview]);
+  useEffect(() => {
+    if (dashboardPreview) return undefined;
+    let active = true;
+    const synchronize = async () => {
+      const currentAccount = await loadAccount();
+      if (!active) return;
+      setAccount(currentAccount);
+      if (!currentAccount.scoreSyncAvailable) {
+        setScoreSyncState("local");
+        return;
+      }
+      setScoreSyncState("syncing");
+      try {
+        const localScores = readLibrary().takes || [];
+        const remoteScores = await loadRemoteScores();
+        const remoteIds = new Set(remoteScores.map((score) => score.id));
+        const pending = localScores.filter((score) => score?.id && !remoteIds.has(score.id));
+        if (pending.length) await Promise.all(pending.slice(0, 100).map((score) => saveRemoteScore(score)));
+        const synchronizedScores = pending.length ? await loadRemoteScores() : remoteScores;
+        if (!active) return;
+        setLibrary((value) => ({ ...value, takes: mergeScores(value.takes, synchronizedScores) }));
+        setScoreSyncState("synced");
+      } catch {
+        if (active) setScoreSyncState("error");
+      }
+    };
+    synchronize();
+    return () => { active = false; };
   }, [dashboardPreview]);
 
   const openBuilder = (value) => {
@@ -1053,7 +1123,16 @@ export function App() {
   };
 
   const saveTake = (take) => {
-    setLibrary((value) => ({ ...value, takes: [take, ...value.takes].slice(0, 12), activity: mergeDailyActivity(value.activity, { recorded: true, title: take.title }) }));
+    setLibrary((value) => ({ ...value, takes: mergeScores([take], value.takes), activity: mergeDailyActivity(value.activity, { recorded: true, title: take.title }) }));
+    if (account.scoreSyncAvailable) {
+      setScoreSyncState("syncing");
+      saveRemoteScore(take)
+        .then((saved) => {
+          setLibrary((value) => ({ ...value, takes: mergeScores(value.takes, [saved]) }));
+          setScoreSyncState("synced");
+        })
+        .catch(() => setScoreSyncState("error"));
+    }
   };
 
   const savePracticeProgress = (track) => {
@@ -1078,10 +1157,10 @@ export function App() {
 
   return (
     <div id="top" className="app-shell">
-      <Header currentView={view} onNavigate={navigate} onOpenBuilder={() => openBuilder()} libraryCount={library.takes.length} />
+      <Header currentView={view} onNavigate={navigate} onOpenBuilder={() => openBuilder()} libraryCount={library.takes.length} account={account} scoreSyncState={scoreSyncState} />
       {view === "discover" && <Discovery onOpenBuilder={openBuilder} onPickSong={pickSong} onResumeTrack={resumeTrack} favorites={library.favorites} onFavorite={toggleFavorite} library={library} />}
       {view === "studio" && activeTrack && <KaraokeStudio track={activeTrack} onBack={() => navigate("discover")} onReplaceVideo={(track) => openBuilder({ url: "", title: track.title, artist: track.artist, language: track.language, searchQuery: makeKaraokeSearchQuery(track.title, track.artist) })} onSavedTake={saveTake} onPracticeProgress={savePracticeProgress} />}
-      {view === "library" && <LibraryView library={library} onDiscover={() => navigate("discover")} onResumeTrack={resumeTrack} />}
+      {view === "library" && <LibraryView library={library} onDiscover={() => navigate("discover")} onResumeTrack={resumeTrack} account={account} scoreSyncState={scoreSyncState} />}
       {view !== "studio" && <Footer />}
       {builderOpen && <Builder seed={builderSeed} onClose={() => setBuilderOpen(false)} onBuild={buildTrack} />}
       {scorePreviewOpen && <TakeScorecard analysis={SCORECARD_PREVIEW} recordingUrl={SILENT_PREVIEW_AUDIO} track={featuredSongs[0]} onClose={() => setScorePreviewOpen(false)} onRetake={() => setScorePreviewOpen(false)} />}

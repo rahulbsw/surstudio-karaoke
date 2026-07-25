@@ -1,36 +1,16 @@
 import express from "express";
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { analyzeLyricScripts, analyzeLyricsQuality, cleanVideoTitle, extractYouTubeId, makeKaraokeSearchQuery, makeYouTubeSearchUrl, parseIsoDuration } from "./src/utils.js";
+import { authConfigured, getCurrentUser, installAuth } from "./src/server/auth.mjs";
+import { databaseConfigured, deleteScore, listScores, saveScore } from "./src/server/db.mjs";
 
 const moduleRoot = process.env.SURSTUDIO_APP_ROOT
   ? resolve(process.env.SURSTUDIO_APP_ROOT)
   : dirname(fileURLToPath(import.meta.url));
-
-function loadLocalEnv() {
-  const envPath = [
-    process.env.SURSTUDIO_ENV_PATH,
-    resolve(process.cwd(), ".env"),
-    resolve(moduleRoot, ".env"),
-  ].filter(Boolean).find(existsSync);
-  if (!envPath) return;
-  if (typeof process.loadEnvFile === "function") {
-    process.loadEnvFile(envPath);
-    return;
-  }
-  readFileSync(envPath, "utf8").split(/\r?\n/).forEach((line) => {
-    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (!match || process.env[match[1]] != null) return;
-    let value = match[2];
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
-    process.env[match[1]] = value;
-  });
-}
-
-loadLocalEnv();
 
 const app = express();
 const port = Number(process.env.API_PORT || 4174);
@@ -47,7 +27,10 @@ const ytDlpExecutable = [
   "/usr/local/bin/yt-dlp",
 ].find((candidate) => candidate && existsSync(candidate)) || "yt-dlp";
 
+app.set("trust proxy", true);
 app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "32kb" }));
+installAuth(app);
 if (nativeMediaRoot && existsSync(nativeMediaRoot)) {
   app.use("/api/native-media", express.static(nativeMediaRoot, { fallthrough: false, index: false, maxAge: "1h" }));
 }
@@ -358,8 +341,133 @@ async function analyzeCatalogSong(song) {
   return { ...value, id: song.id };
 }
 
+function asMetric(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 100 ? Math.round(number) : null;
+}
+
+function asScorePayload(value) {
+  if (!value || typeof value !== "object") return null;
+  const id = String(value.id || "").trim().slice(0, 100);
+  const title = String(value.title || "").trim().slice(0, 160);
+  const artist = String(value.artist || "").trim().slice(0, 160);
+  const score = Number(value.score);
+  const metrics = {
+    pitch: asMetric(value.metrics?.pitch),
+    timing: asMetric(value.metrics?.timing),
+    range: asMetric(value.metrics?.range),
+    control: asMetric(value.metrics?.control),
+  };
+  const pitchStability = value.pitchStability == null ? metrics.pitch : asMetric(value.pitchStability);
+  const recordedAt = new Date(value.createdAt || Date.now());
+  if (!id || !title || !Number.isFinite(score) || score < 0 || score > 10) return null;
+  if (Object.values(metrics).some((metric) => metric == null) || pitchStability == null) return null;
+  if (Number.isNaN(recordedAt.getTime()) || recordedAt.getTime() > Date.now() + 5 * 60 * 1000) return null;
+  return {
+    id,
+    title,
+    artist,
+    score: Math.round(score * 100) / 100,
+    metrics,
+    pitchStability,
+    tier: String(value.tier || "").trim().slice(0, 80),
+    createdAt: recordedAt.toISOString(),
+  };
+}
+
+function isSameOrigin(request) {
+  const origin = request.get("origin");
+  if (!origin) return true;
+  try {
+    const forwardedHost = String(request.get("x-forwarded-host") || request.get("host") || "").split(",")[0].trim();
+    return new URL(origin).host === forwardedHost;
+  } catch {
+    return false;
+  }
+}
+
+async function requireAccount(request, response) {
+  if (!authConfigured) {
+    response.status(503).json({ error: "Google sign-in is not configured in this environment." });
+    return null;
+  }
+  const user = await getCurrentUser(request);
+  if (!user) {
+    response.status(401).json({ error: "Sign in with Google to sync scores." });
+    return null;
+  }
+  return user;
+}
+
 app.get("/api/health", (_request, response) => {
-  response.json({ ok: true, service: "surstudio", provider: "none", localInstrumentalImport: true, localYouTubeSearch: true, youtubeApiConfigured: Boolean(youtubeApiKey) });
+  response.json({
+    ok: true,
+    service: "surstudio",
+    provider: "none",
+    localInstrumentalImport: true,
+    localYouTubeSearch: true,
+    youtubeApiConfigured: Boolean(youtubeApiKey),
+    authConfigured,
+    databaseConfigured,
+  });
+});
+
+app.get("/api/account", async (request, response) => {
+  try {
+    const user = await getCurrentUser(request);
+    response.json({
+      authenticated: Boolean(user),
+      authConfigured,
+      databaseConfigured,
+      user,
+      scoreSyncAvailable: Boolean(user && databaseConfigured),
+    });
+  } catch {
+    response.status(500).json({ error: "SurStudio could not read the current account." });
+  }
+});
+
+app.get("/api/scores", async (request, response) => {
+  try {
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Score storage is not configured." });
+    response.json({ scores: await listScores(user) });
+  } catch (error) {
+    console.error("Score list failed:", error.message);
+    response.status(500).json({ error: "SurStudio could not load your saved scores." });
+  }
+});
+
+app.post("/api/scores", async (request, response) => {
+  try {
+    if (!isSameOrigin(request)) return response.status(403).json({ error: "This score request came from an untrusted origin." });
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Score storage is not configured." });
+    const score = asScorePayload(request.body);
+    if (!score) return response.status(400).json({ error: "The score payload is incomplete or invalid." });
+    response.status(201).json({ score: await saveScore(user, score) });
+  } catch (error) {
+    console.error("Score save failed:", error.message);
+    response.status(500).json({ error: "SurStudio could not save this score." });
+  }
+});
+
+app.delete("/api/scores/:id", async (request, response) => {
+  try {
+    if (!isSameOrigin(request)) return response.status(403).json({ error: "This score request came from an untrusted origin." });
+    const user = await requireAccount(request, response);
+    if (!user) return;
+    if (!databaseConfigured) return response.status(503).json({ error: "Score storage is not configured." });
+    const id = String(request.params.id || "").trim().slice(0, 100);
+    if (!id) return response.status(400).json({ error: "Choose a score to delete." });
+    const deleted = await deleteScore(user.id, id);
+    response.status(deleted ? 200 : 404).json({ deleted });
+  } catch (error) {
+    console.error("Score delete failed:", error.message);
+    response.status(500).json({ error: "SurStudio could not delete this score." });
+  }
 });
 
 app.get("/api/youtube-search", async (request, response) => {
@@ -484,11 +592,22 @@ if (existsSync(distRoot)) {
   app.get(/^(?!\/api(?:\/|$)).*/, (_request, response) => response.sendFile(resolve(distRoot, "index.html")));
 }
 
-app.listen(port, "127.0.0.1", (error) => {
-  if (error) {
-    console.error(`SurStudio API could not listen on 127.0.0.1:${port}: ${error.message}`);
-    process.exitCode = 1;
-    return;
+app.use((error, request, response, _next) => {
+  console.error(`SurStudio request failed (${request.method} ${request.path}):`, error?.message || "Unknown error");
+  if (!response.headersSent) {
+    response.status(500).json({ error: "SurStudio could not complete this request." });
   }
-  console.log(`SurStudio API ready at http://127.0.0.1:${port}`);
 });
+
+export default app;
+
+if (!process.env.VERCEL && process.env.SURSTUDIO_SERVERLESS !== "1") {
+  app.listen(port, "127.0.0.1", (error) => {
+    if (error) {
+      console.error(`SurStudio API could not listen on 127.0.0.1:${port}: ${error.message}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`SurStudio API ready at http://127.0.0.1:${port}`);
+  });
+}
