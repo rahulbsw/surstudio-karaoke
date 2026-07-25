@@ -60,6 +60,7 @@ import { getPracticeRhythm, localDateKey, mergeDailyActivity } from "./habits.js
 import { normalizeInviteToken } from "./groupRules.js";
 import {
   calculatePerformanceBreakdown,
+  chooseNextYouTubeResult,
   createTimedLyrics,
   detectPitch,
   extractYouTubeId,
@@ -628,6 +629,8 @@ function KaraokeStudio({ track, onBack, onReplaceVideo, onSavedTake, onPracticeP
   const savedPractice = useMemo(() => readPracticeState(practiceKey), [practiceKey]);
   const [ready, setReady] = useState(false);
   const [playerError, setPlayerError] = useState(null);
+  const [playbackTrack, setPlaybackTrack] = useState(track);
+  const [replacingPlayback, setReplacingPlayback] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(track.duration || 240);
@@ -664,11 +667,80 @@ function KaraokeStudio({ track, onBack, onReplaceVideo, onSavedTake, onPracticeP
   const timingSamplesRef = useRef([]);
   const currentTimeRef = useRef(currentTime);
   const chunksRef = useRef([]);
-  const Player = track.instrumentalUrl ? AudioTrackPlayer : YouTubePlayer;
+  const fallbackCandidatesRef = useRef([]);
+  const triedVideoIdsRef = useRef(new Set([track.youtubeId].filter(Boolean)));
+  const handledPlaybackErrorsRef = useRef(new Set());
+  const fallbackLoadingRef = useRef(false);
+  const Player = playbackTrack.instrumentalUrl ? AudioTrackPlayer : YouTubePlayer;
   const routine = useMemo(() => buildPracticeRoutine(practiceFocus, routineOffset), [practiceFocus, routineOffset]);
 
   useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
-  useEffect(() => { setPlayerError(null); }, [track.youtubeId, track.instrumentalUrl]);
+  useEffect(() => {
+    setPlaybackTrack(track);
+    setPlayerError(null);
+    setReplacingPlayback(false);
+    fallbackCandidatesRef.current = [];
+    triedVideoIdsRef.current = new Set([track.youtubeId].filter(Boolean));
+    handledPlaybackErrorsRef.current = new Set();
+    fallbackLoadingRef.current = false;
+  }, [track.youtubeId, track.instrumentalUrl]);
+
+  const handleReadyChange = (value) => {
+    setReady(value);
+    if (value) {
+      setPlayerError(null);
+      setReplacingPlayback(false);
+    }
+  };
+
+  const handlePlaybackError = async (error) => {
+    const canTryAlternative = !playbackTrack.instrumentalUrl && [100, 101, 150].includes(error?.code);
+    const failedVideoId = playbackTrack.youtubeId;
+    if (!canTryAlternative || fallbackLoadingRef.current || handledPlaybackErrorsRef.current.has(failedVideoId)) {
+      if (!canTryAlternative && !fallbackLoadingRef.current) setPlayerError(error);
+      return;
+    }
+
+    handledPlaybackErrorsRef.current.add(failedVideoId);
+    fallbackLoadingRef.current = true;
+    setReady(false);
+    setPlaying(false);
+    setPlayerError(null);
+    setReplacingPlayback(true);
+    try {
+      let candidates = fallbackCandidatesRef.current;
+      if (!candidates.length) {
+        const query = makeKaraokeSearchQuery(track.title, track.artist);
+        const upstream = await fetch(`/api/youtube-search?q=${encodeURIComponent(query)}`);
+        const payload = await upstream.json();
+        if (!upstream.ok) throw new Error(payload.error || "Alternative search failed.");
+        candidates = payload.results || [];
+        fallbackCandidatesRef.current = candidates;
+      }
+      const next = chooseNextYouTubeResult(candidates, [...triedVideoIdsRef.current]);
+      if (!next) throw new Error("No more playable karaoke versions were found.");
+      triedVideoIdsRef.current.add(next.id);
+      setCurrentTime(0);
+      setDuration(next.duration || track.duration || 240);
+      setPlaybackTrack({
+        ...track,
+        youtubeId: next.id,
+        sourceUrl: next.url || `https://www.youtube.com/watch?v=${next.id}`,
+        duration: next.duration || track.duration,
+        playbackTitle: next.title,
+        playbackChannel: next.channel,
+      });
+    } catch {
+      setReplacingPlayback(false);
+      setPlayerError({
+        ...error,
+        title: "No playable YouTube version was found",
+        message: "SurStudio tried the available karaoke alternatives. Open YouTube to watch this version, or choose a different upload while keeping your lyrics and practice setup.",
+      });
+    } finally {
+      fallbackLoadingRef.current = false;
+    }
+  };
 
   const lyricTiming = useMemo(() => fitLyricTimings(track.lyrics || [], track.duration, duration, track.syncKind), [track.lyrics, track.duration, duration, track.syncKind]);
   const timingScale = lyricTiming.scale;
@@ -846,7 +918,7 @@ function KaraokeStudio({ track, onBack, onReplaceVideo, onSavedTake, onPracticeP
     <main className={theater ? "studio-view theater-mode" : "studio-view"}>
       <div className="studio-topbar page-shell">
         <button className="back-link" type="button" onClick={onBack}><ChevronLeft /> Back to discover</button>
-        <div className="studio-status"><span className={ready ? "status-dot live" : "status-dot"} /> {playerError ? "Choose another video" : ready ? "Player ready" : "Connecting player"}</div>
+        <div className="studio-status"><span className={ready ? "status-dot live" : "status-dot"} /> {replacingPlayback ? "Finding a playable version" : playerError ? "Choose another video" : ready ? "Player ready" : "Connecting player"}</div>
         <button className="text-button" type="button" onClick={() => setTheater((value) => !value)}><Film /> {theater ? "Exit lyric view" : "Lyric view"}</button>
       </div>
 
@@ -854,9 +926,9 @@ function KaraokeStudio({ track, onBack, onReplaceVideo, onSavedTake, onPracticeP
         <section className="player-column" aria-label="Karaoke player">
           <div className="player-frame">
             <Player
-              track={track}
-              onReadyChange={setReady}
-              onPlaybackError={setPlayerError}
+              track={playbackTrack}
+              onReadyChange={handleReadyChange}
+              onPlaybackError={handlePlaybackError}
               currentTime={currentTime}
               setCurrentTime={setCurrentTime}
               duration={duration}
@@ -867,9 +939,9 @@ function KaraokeStudio({ track, onBack, onReplaceVideo, onSavedTake, onPracticeP
               speed={speed}
               loop={loop}
             />
-            {!ready && !playerError && <div className="player-loading"><span className="loader" /><strong>Preparing your rehearsal room</strong><small>{track.instrumentalUrl ? "Loading your local instrumental." : "The video stays hosted by YouTube."}</small></div>}
-            {playerError && <div className="player-error" role="alert"><span><AlertTriangle /></span><strong>{playerError.title}</strong><p>{playerError.message}</p><div><button className="button button-primary" type="button" onClick={() => onReplaceVideo(track)}>Choose another video</button><a className="button button-secondary" href={track.sourceUrl || `https://www.youtube.com/watch?v=${track.youtubeId}`} target="_blank" rel="noreferrer">Watch on YouTube</a></div></div>}
-            <div className={track.instrumentalUrl ? "player-badge local" : "player-badge"}>{track.instrumentalUrl ? <><FileAudio /> Local instrumental</> : <><Youtube /> Embedded playback</>}</div>
+            {!ready && !playerError && <div className="player-loading"><span className="loader" /><strong>{replacingPlayback ? "Finding a playable karaoke version" : "Preparing your rehearsal room"}</strong><small>{replacingPlayback ? "SurStudio is checking the next matching upload automatically." : playbackTrack.instrumentalUrl ? "Loading your local instrumental." : "The video stays hosted by YouTube."}</small></div>}
+            {playerError && <div className="player-error" role="alert"><span><AlertTriangle /></span><strong>{playerError.title}</strong><p>{playerError.message}</p><div><button className="button button-primary" type="button" onClick={() => onReplaceVideo(track)}>Choose another video</button><a className="button button-secondary" href={playbackTrack.sourceUrl || `https://www.youtube.com/watch?v=${playbackTrack.youtubeId}`} target="_blank" rel="noreferrer">Watch on YouTube</a></div></div>}
+            <div className={playbackTrack.instrumentalUrl ? "player-badge local" : "player-badge"}>{playbackTrack.instrumentalUrl ? <><FileAudio /> Local instrumental</> : <><Youtube /> Embedded playback</>}</div>
           </div>
 
           <div className="track-heading">

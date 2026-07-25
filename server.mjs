@@ -225,6 +225,25 @@ async function searchYouTubeWeb(query) {
   return flattenVideoResults(data);
 }
 
+async function filterEmbeddableYouTubeResults(results = []) {
+  const checks = await mapWithConcurrency(results.slice(0, 10), 3, async (item) => {
+    const endpoint = new URL("https://www.youtube.com/oembed");
+    endpoint.searchParams.set("url", item.url || `https://www.youtube.com/watch?v=${item.id}`);
+    endpoint.searchParams.set("format", "json");
+    try {
+      const upstream = await fetch(endpoint, { signal: withTimeout(8_000) });
+      if (upstream.ok) return { ...item, embeddable: true };
+      if ([400, 401, 403, 404].includes(upstream.status)) return null;
+      return { ...item, embeddable: null };
+    } catch {
+      // Keep an unchecked result when YouTube's lightweight probe is temporarily
+      // unavailable; the studio's player will rotate to the next candidate.
+      return { ...item, embeddable: null };
+    }
+  });
+  return checks.filter(Boolean);
+}
+
 function splitMetadata(rawTitle = "", authorName = "") {
   const cleaned = cleanVideoTitle(rawTitle);
   const separators = [" - ", " – ", " — ", " | "];
@@ -678,11 +697,13 @@ app.get("/api/youtube-search", async (request, response) => {
       thumbnailUrl: `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
       url: `https://www.youtube.com/watch?v=${item.id}`,
     }));
-    return response.json({ query, fallbackUrl, results, searchMethod: "yt-dlp" });
+    const playableResults = await filterEmbeddableYouTubeResults(results);
+    return response.json({ query, fallbackUrl, results: playableResults, searchMethod: "yt-dlp-oembed", playabilityChecked: true });
   } catch (error) {
     try {
       const results = await searchYouTubeWeb(query);
-      return response.json({ query, fallbackUrl, results, searchMethod: "youtube-web" });
+      const playableResults = await filterEmbeddableYouTubeResults(results);
+      return response.json({ query, fallbackUrl, results: playableResults, searchMethod: "youtube-web-oembed", playabilityChecked: true });
     } catch {
       return response.json({ query, fallbackUrl, results: [], warning: "Automatic YouTube search is temporarily unavailable. Open the prepared karaoke search to choose a video." });
     }

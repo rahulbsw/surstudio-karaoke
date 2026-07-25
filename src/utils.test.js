@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   analyzeLyricScripts,
   analyzeLyricsQuality,
+  chooseNextYouTubeResult,
   cleanVideoTitle,
   calculatePerformanceBreakdown,
   createTimedLyrics,
@@ -27,6 +28,16 @@ test("extracts common YouTube URL formats", () => {
 test("builds karaoke-first YouTube searches without duplicate keywords", () => {
   assert.equal(makeKaraokeSearchQuery("Lag Jaa Gale karaoke", "Lata Mangeshkar"), "karaoke Lag Jaa Gale Lata Mangeshkar");
   assert.match(makeYouTubeSearchUrl("Kesariya Arijit Singh"), /search_query=karaoke%20Kesariya%20Arijit%20Singh/);
+});
+
+test("chooses the next unchecked or embeddable YouTube result", () => {
+  const results = [
+    { id: "AAAAAAAAAAA", embeddable: false },
+    { id: "BBBBBBBBBBB", embeddable: true },
+    { id: "CCCCCCCCCCC", embeddable: null },
+  ];
+  assert.equal(chooseNextYouTubeResult(results, ["BBBBBBBBBBB"])?.id, "CCCCCCCCCCC");
+  assert.equal(chooseNextYouTubeResult(results, ["BBBBBBBBBBB", "CCCCCCCCCCC"]), null);
 });
 
 test("converts YouTube ISO durations to seconds", () => {

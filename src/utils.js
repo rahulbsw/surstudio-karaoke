@@ -97,6 +97,15 @@ export function makeYouTubeSearchUrl(query = "") {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(karaokeQuery)}`;
 }
 
+export function chooseNextYouTubeResult(results = [], triedIds = []) {
+  const tried = new Set(triedIds);
+  return results.find((item) => (
+    /^[a-zA-Z0-9_-]{11}$/.test(String(item?.id || ""))
+    && item.embeddable !== false
+    && !tried.has(item.id)
+  )) || null;
+}
+
 export function cleanVideoTitle(value = "") {
   return value
     .replace(/\s*[|–—-]\s*(official\s+)?(music\s+)?(video|audio|lyric(s)?\s+video|full\s+song).*$/i, "")
