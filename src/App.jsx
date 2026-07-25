@@ -520,8 +520,8 @@ function YouTubePlayer({ track, onReadyChange, onPlaybackError, currentTime, set
             setPlaying(false);
             onPlaybackError?.({
               code: event.data,
-              title: blocked ? "This upload cannot play inside apps" : unavailable ? "This YouTube video is unavailable" : "YouTube playback could not start",
-              message: blocked ? "The video owner disabled embedded playback. Choose another karaoke upload; your lyrics and practice setup can be rebuilt automatically." : "Choose another karaoke version or attach a local instrumental to continue.",
+              title: blocked ? "This YouTube video can’t be embedded" : unavailable ? "This YouTube video is unavailable" : "YouTube playback could not start",
+              message: blocked ? "The video owner only allows playback on YouTube. Choose another karaoke version and SurStudio will keep your lyrics and practice setup ready." : "Choose another karaoke version or attach a local instrumental to continue.",
             });
           },
         },
@@ -864,7 +864,7 @@ function KaraokeStudio({ track, onBack, onReplaceVideo, onSavedTake, onPracticeP
               loop={loop}
             />
             {!ready && !playerError && <div className="player-loading"><span className="loader" /><strong>Preparing your rehearsal room</strong><small>{track.instrumentalUrl ? "Loading your local instrumental." : "The video stays hosted by YouTube."}</small></div>}
-            {playerError && <div className="player-error" role="alert"><span><AlertTriangle /></span><strong>{playerError.title}</strong><p>{playerError.message}</p><div><button className="button button-primary" type="button" onClick={() => onReplaceVideo(track)}>Find another karaoke</button><a className="button button-secondary" href={track.sourceUrl || `https://www.youtube.com/watch?v=${track.youtubeId}`} target="_blank" rel="noreferrer">Watch on YouTube</a></div></div>}
+            {playerError && <div className="player-error" role="alert"><span><AlertTriangle /></span><strong>{playerError.title}</strong><p>{playerError.message}</p><div><button className="button button-primary" type="button" onClick={() => onReplaceVideo(track)}>Choose another video</button><a className="button button-secondary" href={track.sourceUrl || `https://www.youtube.com/watch?v=${track.youtubeId}`} target="_blank" rel="noreferrer">Watch on YouTube</a></div></div>}
             <div className={track.instrumentalUrl ? "player-badge local" : "player-badge"}>{track.instrumentalUrl ? <><FileAudio /> Local instrumental</> : <><Youtube /> Embedded playback</>}</div>
           </div>
 
