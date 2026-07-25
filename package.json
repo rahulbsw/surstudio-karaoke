@@ -20,6 +20,9 @@
   "engines": {
     "node": ">=20"
   },
+  "overrides": {
+    "shell-quote": "^1.9.0"
+  },
   "dependencies": {
     "@auth/express": "^0.12.3",
     "@fontsource/outfit": "^5.3.0",
